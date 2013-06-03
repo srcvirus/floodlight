@@ -146,7 +146,10 @@ public class Forwarding extends ForwardingBase implements IFloodlightModule {
           .setMatch(match)
           .setActions(actions)
           .setLengthU(OFFlowMod.MINIMUM_LENGTH); // +OFActionOutput.MINIMUM_LENGTH);
-
+        
+        fm.setFlags(OFFlowMod.OFPFF_SEND_FLOW_REM);
+        fm.setCookie(System.nanoTime());
+        
         try {
             if (log.isDebugEnabled()) {
                 log.debug("write drop flow-mod sw={} match={} flow-mod={}",
@@ -162,8 +165,16 @@ public class Forwarding extends ForwardingBase implements IFloodlightModule {
                                  FloodlightContext cntx,
                                  boolean requestFlowRemovedNotifn) {    
         OFMatch match = new OFMatch();
+        OFMatch tmpMatch = new OFMatch();
+        
         match.loadFromPacket(pi.getPacketData(), pi.getInPort());
-
+        /*match.setDataLayerDestination(tmpMatch.getDataLayerDestination());
+        match.setDataLayerSource(tmpMatch.getDataLayerSource());
+        match.setInputPort(tmpMatch.getInputPort());
+        match.setTransportDestination(tmpMatch.getTransportDestination());
+        match.setNetworkSource(tmpMatch.getNetworkSource());
+        match.setNetworkDestination(tmpMatch.getNetworkDestination());
+        */
         // Check if we have the location of the destination
         IDevice dstDevice = 
                 IDeviceService.fcStore.
@@ -272,18 +283,24 @@ public class Forwarding extends ForwardingBase implements IFloodlightModule {
                             if (decision != null) {
                                 wildcard_hints = decision.getWildcards();
                             } else {
+                                
                             	// L2 only wildcard if there is no prior route decision
                                 wildcard_hints = ((Integer) sw
-                                        .getAttribute(IOFSwitch.PROP_FASTWILDCARDS))
+                                        .getAttribute(IOFSwitch.PROP_FASTWILDCARDS))    //PROP_FASTWILDCARDS
                                         .intValue()
                                         & ~OFMatch.OFPFW_IN_PORT
                                         & ~OFMatch.OFPFW_DL_VLAN
                                         & ~OFMatch.OFPFW_DL_SRC
                                         & ~OFMatch.OFPFW_DL_DST
                                         & ~OFMatch.OFPFW_NW_SRC_MASK
-                                        & ~OFMatch.OFPFW_NW_DST_MASK;
+                                        & ~OFMatch.OFPFW_NW_DST_MASK
+                                        & ~OFMatch.OFPFW_TP_DST
+                                        & ~OFMatch.OFPFW_NW_PROTO
+                                        & ~OFMatch.OFPFW_NW_SRC_ALL
+                                        & ~OFMatch.OFPFW_NW_DST_ALL;
                             }
-
+                            log.info(OFMatch.debugWildCards(wildcard_hints));
+                            
                             pushRoute(route, match, wildcard_hints, pi, sw.getId(), cookie, 
                                       cntx, requestFlowRemovedNotifn, false,
                                       OFFlowMod.OFPFC_ADD);

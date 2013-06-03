@@ -73,7 +73,7 @@ public abstract class ForwardingBase
     protected static int OFMESSAGE_DAMPER_TIMEOUT = 250; // ms 
 
     public static short FLOWMOD_DEFAULT_IDLE_TIMEOUT = 5; // in seconds
-    public static short FLOWMOD_DEFAULT_HARD_TIMEOUT = 0; // infinite
+    public static short FLOWMOD_DEFAULT_HARD_TIMEOUT = 1; //0; // infinite
     
     protected IFloodlightProviderService floodlightProvider;
     protected IDeviceService deviceManager;
@@ -225,7 +225,10 @@ public abstract class ForwardingBase
             .setMatch(match)
             .setActions(actions)
             .setLengthU(OFFlowMod.MINIMUM_LENGTH+OFActionOutput.MINIMUM_LENGTH);
-
+        
+        fm.setFlags(OFFlowMod.OFPFF_SEND_FLOW_REM);
+        fm.setCookie(System.nanoTime());
+        
         List<NodePortTuple> switchPortList = route.getPath();
 
         for (int indx = switchPortList.size()-1; indx > 0; indx -= 2) {
@@ -241,8 +244,8 @@ public abstract class ForwardingBase
             }
 
             // set the match.
-            fm.setMatch(wildcard(match, sw, wildcard_hints));
-
+            //fm.setMatch(wildcard(match, sw, wildcard_hints));
+            fm.setMatch(match);
             // set buffer id if it is the source switch
             if (1 == indx) {
                 // Set the flag to request flow-mod removal notifications only for the
@@ -575,7 +578,9 @@ public abstract class ForwardingBase
           .setMatch(match)
           .setActions(actions)
           .setLengthU(OFFlowMod.MINIMUM_LENGTH); // +OFActionOutput.MINIMUM_LENGTH);
-
+        fm.setFlags(OFFlowMod.OFPFF_SEND_FLOW_REM);
+        fm.setCookie(System.nanoTime());
+        
         try {
             log.debug("write drop flow-mod sw={} match={} flow-mod={}",
                       new Object[] { sw, match, fm });
