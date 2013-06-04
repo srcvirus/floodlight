@@ -6,6 +6,7 @@ package net.floodlightcontroller.netmonitor;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
@@ -22,6 +23,7 @@ import net.floodlightcontroller.core.module.FloodlightModuleException;
 import net.floodlightcontroller.core.module.IFloodlightModule;
 import net.floodlightcontroller.core.module.IFloodlightService;
 import net.floodlightcontroller.packet.IPv4;
+import net.floodlightcontroller.restserver.IRestApiService;
 import org.openflow.protocol.OFFlowRemoved;
 import org.openflow.protocol.OFMatch;
 import org.openflow.protocol.OFMessage;
@@ -35,12 +37,13 @@ import org.slf4j.LoggerFactory;
  * @author Shihabur Rahman Chowdhury
  * 
  */
-public class NETMonitor implements IOFMessageListener, IFloodlightModule
+public class NETMonitor implements IOFMessageListener, IFloodlightModule, INetMonitorService
 {
     protected IFloodlightProviderService floodLightProvider;
     protected static Logger logger;
     protected SortedSet <ActiveFlow> activeFlowTable;
     protected SortedMap <Long, SwitchStatistics> switchStatTable;
+    protected IRestApiService restApi;
     
     public Command receive(IOFSwitch sw, OFMessage msg, FloodlightContext cntx)
     {
@@ -204,23 +207,29 @@ public class NETMonitor implements IOFMessageListener, IFloodlightModule
     }
 
     public Collection<Class<? extends IFloodlightService>> getModuleServices() {
-        return null;
+        Collection<Class<? extends IFloodlightService>> l = new ArrayList<Class<? extends IFloodlightService>>();
+        l.add(INetMonitorService.class);
+        return l;
     }
 
     public Map<Class<? extends IFloodlightService>, IFloodlightService> getServiceImpls() {
-        return null;
+        Map<Class<? extends IFloodlightService>, IFloodlightService> m = new HashMap<Class<? extends IFloodlightService>, IFloodlightService>();
+        m.put(INetMonitorService.class, this);
+        return m;
     }
 
     public Collection<Class<? extends IFloodlightService>> getModuleDependencies() 
     {
         Collection<Class<? extends IFloodlightService>> dependencyList = new ArrayList<Class<? extends IFloodlightService>>();
         dependencyList.add(IFloodlightProviderService.class);
+        dependencyList.add(IRestApiService.class);
         return dependencyList;
     }
 
     public void init(FloodlightModuleContext context) throws FloodlightModuleException 
     {
         floodLightProvider = context.getServiceImpl(IFloodlightProviderService.class);
+        restApi = context.getServiceImpl(IRestApiService.class);
         logger = LoggerFactory.getLogger(NETMonitor.class);
         activeFlowTable = new TreeSet<ActiveFlow>();
         switchStatTable = new TreeMap<Long, SwitchStatistics>();
@@ -229,6 +238,7 @@ public class NETMonitor implements IOFMessageListener, IFloodlightModule
     public void startUp(FloodlightModuleContext context) throws FloodlightModuleException {
         floodLightProvider.addOFMessageListener(OFType.PACKET_IN, this);
         floodLightProvider.addOFMessageListener(OFType.FLOW_REMOVED, this);
+        restApi.addRestletRoutable(new NetMonitorWebRoutable());
     }
     
     public void printUtilization()
@@ -239,5 +249,9 @@ public class NETMonitor implements IOFMessageListener, IFloodlightModule
         {
             switchStatTable.get(swId).printSwitchStatistcs(logger);
         }
+    }
+
+    public SortedMap<Long, SwitchStatistics> getSwitchStatistics() {
+        return switchStatTable;
     }
 }
