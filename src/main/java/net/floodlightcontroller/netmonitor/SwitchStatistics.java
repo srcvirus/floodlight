@@ -5,6 +5,7 @@
 package net.floodlightcontroller.netmonitor;
 
 import java.util.ArrayList;
+import org.slf4j.Logger;
 
 /**
  *
@@ -14,11 +15,11 @@ public class SwitchStatistics {
     long swId;
     ArrayList<LinkStatistics> linkStatTable;
     
-    void printSwitchStatistcs()
+    void printSwitchStatistcs(Logger log)
     {
-        System.out.println("Switch ID = " + swId);
+        log.info("Switch ID = " + swId);
         for(int i = 0; i < linkStatTable.size(); i++)
-            linkStatTable.get(i).printLinkStatistics();
+            linkStatTable.get(i).printLinkStatistics(log);
     }
     public SwitchStatistics()
     {

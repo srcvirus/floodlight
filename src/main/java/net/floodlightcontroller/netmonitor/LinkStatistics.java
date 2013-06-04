@@ -7,6 +7,7 @@ package net.floodlightcontroller.netmonitor;
 import java.util.SortedMap;
 import java.util.TreeMap;
 import java.util.Set;
+import org.slf4j.Logger;
 
 /**
  *
@@ -16,13 +17,30 @@ public class LinkStatistics {
     private int inputPort;
     SortedMap<Long, Double> statData;
     
-    public void printLinkStatistics()
+    public void printLinkStatistics(Logger log)
     {
-        System.out.println("\tInput Port = " + inputPort);
+        log.info("\tInput Port = " + inputPort);
         Set <Long> ts = statData.keySet();
         for(Long t: ts)
         {
-            System.out.println("\t\tTimestamp = " + t + ", Utilization = " + statData.get(t) + "bps");
+            double utilization = statData.get(t);
+            String unit = "Bps";
+            if(utilization > 1000.0)
+            {
+                utilization /= 1000.0;
+                unit = "KBps";
+            }
+            if(utilization > 1000.0)
+            {
+                utilization /= 1000.0;
+                unit = "MBps";
+            }
+            if(utilization > 1000.0)
+            {
+                utilization /= 1000.0;
+                unit = "GBps";
+            }
+            log.info("\t\tTimestamp = " + t + ", Utilization = " + utilization + unit);
         }
     }
     public LinkStatistics()

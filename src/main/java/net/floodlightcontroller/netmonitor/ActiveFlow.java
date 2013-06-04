@@ -4,6 +4,8 @@
  */
 package net.floodlightcontroller.netmonitor;
 
+import net.floodlightcontroller.packet.IPv4;
+
 /**
  *
  * @author Shihabur Rahman Chowdhury
@@ -17,6 +19,16 @@ public class ActiveFlow implements Comparable
     private int srcPort, destPort;
     private long timestamp;
     
+    public String toString()
+    {
+        String ret = "";
+        ret += "Switch ID = " + swId;
+        ret += ", In Port = " + inputPort;
+        ret += ", Source = " + IPv4.fromIPv4Address(srcIp) + ":" + srcPort;
+        ret += ", Destination IP = " + IPv4.fromIPv4Address(destIp) + ":" + destPort;
+        ret += ", Timestamp = " + timestamp;
+        return ret;
+    }
     public ActiveFlow(long swId, int inputPort, int srcIp, int destIp, int nwProto, int srcPort, int destPort) {
         this.swId = swId;
         this.inputPort = inputPort;

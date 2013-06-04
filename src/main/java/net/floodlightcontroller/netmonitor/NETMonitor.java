@@ -69,11 +69,15 @@ public class NETMonitor implements IOFMessageListener, IFloodlightModule
                         + ", " + str_reason + ", source = " + IPv4.fromIPv4Address(source_ip) + ":" + source_port
                         + ", destination = " + IPv4.fromIPv4Address(dest_ip) + ":" + dest_port + ", protocol = " + net_proto);
                 
-                ActiveFlow entry = new ActiveFlow(sw.getId(), in_port, source_ip, dest_ip, net_proto, source_port, dest_port);
-                if(activeFlowTable.contains(entry) == false)
+                synchronized(activeFlowTable)
                 {
-                    entry.setTimestamp(System.currentTimeMillis());
-                    activeFlowTable.add(entry);
+                    ActiveFlow entry = new ActiveFlow(sw.getId(), in_port, source_ip, dest_ip, net_proto, source_port, dest_port);
+                    if(activeFlowTable.contains(entry) == false)
+                    {
+                        entry.setTimestamp(System.currentTimeMillis());
+                        logger.debug("Adding flow " + entry.toString() + "to the table");
+                        activeFlowTable.add(entry);
+                    }
                 }
                 break;
                 
@@ -100,72 +104,86 @@ public class NETMonitor implements IOFMessageListener, IFloodlightModule
                         + " in port = " + match.getInputPort());
                 
                 ActiveFlow removedEntry = new ActiveFlow(sw.getId(), match.getInputPort(), src_ip, dst_ip, proto, src_port, dst_port);
+                logger.debug("Removed flow: " + removedEntry.toString());
                 long checkPointTimeStamp = System.currentTimeMillis();
                 if(rsn.equals(OFFlowRemoved.OFFlowRemovedReason.OFPRR_IDLE_TIMEOUT))
                 {
                     checkPointTimeStamp -= (long)(flRmMsg.getIdleTimeout() * 1000);
                 }
                 ActiveFlow matchedFlow = null, tmpMatchFlow = null;
-                for(Iterator<ActiveFlow> it = activeFlowTable.iterator(); it.hasNext() ; )
+                
+                synchronized(activeFlowTable)
                 {
-                    ActiveFlow flow = it.next();
-                    if(flow.equals(removedEntry))
+                    for(Iterator<ActiveFlow> it = activeFlowTable.iterator(); it.hasNext() ; )
                     {
-                        tmpMatchFlow = flow;
-                        break;
+                        ActiveFlow flow = it.next();
+                        if(flow.equals(removedEntry))
+                        {
+                            tmpMatchFlow = flow;
+                            break;
+                        }
                     }
                 }
                 
                 if(tmpMatchFlow != null)
                 {
+                    logger.debug("Found a Matching Flow: " + tmpMatchFlow.toString());
                     matchedFlow = tmpMatchFlow.clone();
-                    activeFlowTable.remove(matchedFlow);
-                    
+                    synchronized(activeFlowTable)
+                    {
+                        activeFlowTable.remove(matchedFlow);
+                    }
                     double utilization = (double)flRmMsg.getByteCount() / (double)flRmMsg.getDurationSeconds();
-                    
-                    if(switchStatTable.get(new Long(sw.getId())) == null)
+                    synchronized(switchStatTable)
                     {
-                        LinkStatistics linkStat = new LinkStatistics();
-                        linkStat.setInputPort(matchedFlow.getInputPort());
-                        linkStat.addStatData(checkPointTimeStamp, utilization);
-                        
-                        SwitchStatistics swStat = new SwitchStatistics();
-                        swStat.setSwId(sw.getId());
-                        swStat.addLinkStat(linkStat);
-                    }
-                    else if(switchStatTable.get(new Long(sw.getId())).linkExists(match.getInputPort()) == false)
-                    {
-                        LinkStatistics linkStat = new LinkStatistics();
-                        linkStat.setInputPort(matchedFlow.getInputPort());
-                        linkStat.addStatData(checkPointTimeStamp, utilization);
-                        switchStatTable.get(new Long(sw.getId())).addLinkStat(null);
-                    }
-                    else
-                    {
-                        SwitchStatistics swStat = switchStatTable.get(new Long(sw.getId()));
-                        for(int i = 0; i < swStat.getLinkStatTable().size(); i++)
+                        if(switchStatTable.get(new Long(sw.getId())) == null)
                         {
-                            LinkStatistics ls = swStat.getLinkStatTable().get(i);
-                            if(ls.getInputPort() == match.getInputPort())
+                            logger.debug("Adding a switch entry for the first time, swId = " + sw.getId());
+                            LinkStatistics linkStat = new LinkStatistics();
+                            linkStat.setInputPort(matchedFlow.getInputPort());
+                            linkStat.addStatData(checkPointTimeStamp, utilization);
+
+                            SwitchStatistics swStat = new SwitchStatistics();
+                            swStat.setSwId(sw.getId());
+                            swStat.addLinkStat(linkStat);
+                            switchStatTable.put(sw.getId(), swStat);
+                        }
+                        else if(switchStatTable.get(new Long(sw.getId())).linkExists(match.getInputPort()) == false)
+                        {
+                            logger.debug("Adding entry for port = " + matchedFlow.getInputPort() + " on switch " + sw.getId());
+                            LinkStatistics linkStat = new LinkStatistics();
+                            linkStat.setInputPort(matchedFlow.getInputPort());
+                            linkStat.addStatData(checkPointTimeStamp, utilization);
+                            switchStatTable.get(new Long(sw.getId())).addLinkStat(null);
+                        }
+                        else
+                        {
+                            SwitchStatistics swStat = switchStatTable.get(new Long(sw.getId()));
+                            for(int i = 0; i < swStat.getLinkStatTable().size(); i++)
                             {
-                                Set <Long> timestampSet = ls.getStatData().keySet();
-                                for(Iterator <Long> it = timestampSet.iterator(); it.hasNext(); )
+                                LinkStatistics ls = swStat.getLinkStatTable().get(i);
+                                if(ls.getInputPort() == match.getInputPort())
                                 {
-                                    Long ts = it.next();
-                                    if(ts.longValue() > matchedFlow.getTimestamp()
-                                            && ts.longValue() < checkPointTimeStamp)
+                                    Set <Long> timestampSet = ls.getStatData().keySet();
+                                    for(Iterator <Long> it = timestampSet.iterator(); it.hasNext(); )
                                     {
-                                        ls.getStatData().put(ts, utilization + ls.getStatData().get(ts).doubleValue());
+                                        Long ts = it.next();
+                                        if(ts.longValue() > matchedFlow.getTimestamp()
+                                                && ts.longValue() < checkPointTimeStamp)
+                                        {
+                                            ls.getStatData().put(ts, utilization + ls.getStatData().get(ts).doubleValue());
+                                        }
                                     }
                                 }
                             }
+                            LinkStatistics latestLinkStat = new LinkStatistics();
+                            latestLinkStat.setInputPort(matchedFlow.getInputPort());
+                            latestLinkStat.addStatData(checkPointTimeStamp, utilization);
+                            swStat.getLinkStatTable().add(latestLinkStat);
                         }
-                        LinkStatistics latestLinkStat = new LinkStatistics();
-                        latestLinkStat.setInputPort(matchedFlow.getInputPort());
-                        latestLinkStat.addStatData(checkPointTimeStamp, utilization);
-                        swStat.getLinkStatTable().add(latestLinkStat);
                     }
                 }
+                printUtilization();
                 break;
         }
         
@@ -215,10 +233,11 @@ public class NETMonitor implements IOFMessageListener, IFloodlightModule
     
     public void printUtilization()
     {
+        logger.info("nSwitches = " + switchStatTable.size());
         Set <Long> switchIds = switchStatTable.keySet();
         for(Long swId:switchIds)
         {
-            switchStatTable.get(swId).printSwitchStatistcs();
+            switchStatTable.get(swId).printSwitchStatistcs(logger);
         }
     }
 }
