@@ -288,13 +288,13 @@ public class Forwarding extends ForwardingBase implements IFloodlightModule {
                                 wildcard_hints = ((Integer) sw
                                         .getAttribute(IOFSwitch.PROP_FASTWILDCARDS))    //PROP_FASTWILDCARDS
                                         .intValue()
+                                        & ~OFMatch.OFPFW_DL_TYPE
                                         & ~OFMatch.OFPFW_IN_PORT
-                                        & ~OFMatch.OFPFW_DL_VLAN
+                                        //& ~OFMatch.OFPFW_DL_VLAN
                                         & ~OFMatch.OFPFW_DL_SRC
                                         & ~OFMatch.OFPFW_DL_DST
                                         & ~OFMatch.OFPFW_NW_SRC_MASK
                                         & ~OFMatch.OFPFW_NW_DST_MASK
-                                        & ~OFMatch.OFPFW_TP_DST
                                         & ~OFMatch.OFPFW_NW_PROTO
                                         & ~OFMatch.OFPFW_NW_SRC_ALL
                                         & ~OFMatch.OFPFW_NW_DST_ALL;

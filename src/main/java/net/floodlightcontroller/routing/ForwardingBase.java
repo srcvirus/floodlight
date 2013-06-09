@@ -207,7 +207,7 @@ public abstract class ForwardingBase
                              boolean reqeustFlowRemovedNotifn,
                              boolean doFlush,
                              short   flowModCommand) {
-
+        log.debug(route.toString());
         boolean srcSwitchIncluded = false;
         OFFlowMod fm =
                 (OFFlowMod) floodlightProvider.getOFMessageFactory()
@@ -226,7 +226,11 @@ public abstract class ForwardingBase
             .setActions(actions)
             .setLengthU(OFFlowMod.MINIMUM_LENGTH+OFActionOutput.MINIMUM_LENGTH);
         
-        fm.setFlags(OFFlowMod.OFPFF_SEND_FLOW_REM);
+        //fm.setFlags(OFFlowMod.OFPFF_SEND_FLOW_REM);
+        if(match.getDataLayerType() != Ethernet.TYPE_ARP
+                && match.getDataLayerType() != Ethernet.TYPE_LLDP)
+            fm.setFlags(OFFlowMod.OFPFF_SEND_FLOW_REM);
+        
         fm.setCookie(System.nanoTime());
         
         List<NodePortTuple> switchPortList = route.getPath();
@@ -244,8 +248,8 @@ public abstract class ForwardingBase
             }
 
             // set the match.
-            //fm.setMatch(wildcard(match, sw, wildcard_hints));
-            fm.setMatch(match);
+            fm.setMatch(wildcard(match, sw, wildcard_hints));
+            //fm.setMatch(match);
             // set buffer id if it is the source switch
             if (1 == indx) {
                 // Set the flag to request flow-mod removal notifications only for the
@@ -578,7 +582,10 @@ public abstract class ForwardingBase
           .setMatch(match)
           .setActions(actions)
           .setLengthU(OFFlowMod.MINIMUM_LENGTH); // +OFActionOutput.MINIMUM_LENGTH);
-        fm.setFlags(OFFlowMod.OFPFF_SEND_FLOW_REM);
+        
+        if(match.getDataLayerType() != Ethernet.TYPE_ARP
+                && match.getDataLayerType() != Ethernet.TYPE_LLDP)
+            fm.setFlags(OFFlowMod.OFPFF_SEND_FLOW_REM);
         fm.setCookie(System.nanoTime());
         
         try {

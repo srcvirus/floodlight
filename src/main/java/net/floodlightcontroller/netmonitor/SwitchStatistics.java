@@ -4,7 +4,9 @@
  */
 package net.floodlightcontroller.netmonitor;
 
-import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.SortedSet;
+import java.util.TreeSet;
 import org.slf4j.Logger;
 
 /**
@@ -13,24 +15,36 @@ import org.slf4j.Logger;
  */
 public class SwitchStatistics {
     long swId;
-    ArrayList<LinkStatistics> linkStatTable;
+    SortedSet<LinkStatistics> linkStatTable;
+    Iterator <LinkStatistics> linkStatIterator;
     
-    void printSwitchStatistcs(Logger log)
+    public void printSwitchStatistcs(Logger log)
     {
         log.info("Switch ID = " + swId);
-        for(int i = 0; i < linkStatTable.size(); i++)
-            linkStatTable.get(i).printLinkStatistics(log);
+        LinkStatistics[] linkStats = new LinkStatistics[1];
+        synchronized(linkStatTable)
+        {
+            linkStats = linkStatTable.toArray(new LinkStatistics[0]);
+        }
+        for(int i = 0; i < linkStats.length; i++)
+            linkStats[i].printLinkStatistics(log);
     }
     public SwitchStatistics()
     {
-        linkStatTable = new ArrayList<LinkStatistics>();
+        linkStatTable = new TreeSet<LinkStatistics> ();
+        linkStatIterator = linkStatTable.iterator();
     }
 
-    public ArrayList<LinkStatistics> getLinkStatTable() {
+    public synchronized void resetIterator()
+    {
+        linkStatIterator = linkStatTable.iterator();
+    }
+    
+    public SortedSet<LinkStatistics> getLinkStatTable() {
         return linkStatTable;
     }
 
-    public void setLinkStatTable(ArrayList<LinkStatistics> linkStatTable) {
+    public void setLinkStatTable(TreeSet<LinkStatistics> linkStatTable) {
         this.linkStatTable = linkStatTable;
     }
 
@@ -42,15 +56,16 @@ public class SwitchStatistics {
         this.swId = swId;
     }
     
-    public void addLinkStat(LinkStatistics ls)
+    public synchronized void addLinkStat(LinkStatistics ls)
     {
         linkStatTable.add(ls);
     }
     
-    public boolean linkExists(int inputPort)
+    public synchronized boolean linkExists(int inputPort)
     {
-        for(int i = 0; i < linkStatTable.size(); i++)
-            if(linkStatTable.get(i).getInputPort() == inputPort)
+        LinkStatistics[] linkStats = linkStatTable.toArray(new LinkStatistics[0]);
+        for(int i = 0; i < linkStats.length; i++)
+            if(linkStats[i].getInputPort() == inputPort)
                 return true;
         
         return false;
