@@ -19,6 +19,7 @@ public class FlowEntry implements Comparable
     private int dlType;
     //private int destPort;
     private long timestamp;
+    private int scheduleTimeout;
     
     public String toString()
     {
@@ -167,13 +168,20 @@ public class FlowEntry implements Comparable
         return hash;
     }
 
+    public int getScheduleTimeout() {
+        return scheduleTimeout;
+    }
+
+    public void setScheduleTimeout(int timeout) {
+        this.scheduleTimeout = timeout;
+    }
+    
     @Override
     protected FlowEntry clone() {
         //return new FlowEntry(swId, inputPort, srcIp, destIp, nwProto, dlType, destPort);
         FlowEntry ret = new FlowEntry(swId, inputPort, srcIp, destIp, nwProto, dlType);
         ret.setTimestamp(this.timestamp);
+        ret.setScheduleTimeout(this.scheduleTimeout);
         return ret;
     }
-    
-    
 }
