@@ -4,7 +4,9 @@
  */
 package net.floodlightcontroller.netmonitor;
 
+import com.google.common.collect.Collections2;
 import java.text.DecimalFormat;
+import java.util.Collections;
 import java.util.SortedMap;
 import java.util.TreeMap;
 import java.util.Set;
@@ -77,5 +79,11 @@ public class LinkStatistics implements Comparable {
             return 1;
         LinkStatistics obj = (LinkStatistics)arg0;
         return this.inputPort - obj.inputPort;
+    }
+    
+    public double getLatestStatistics()
+    {
+        Long maxTimeStamp = Collections.max(statData.keySet());
+        return statData.get(maxTimeStamp).doubleValue();
     }
 }

@@ -5,6 +5,7 @@
 package net.floodlightcontroller.netmonitor;
 
 import net.floodlightcontroller.packet.IPv4;
+import org.openflow.protocol.OFMatch;
 
 /**
  *
@@ -18,8 +19,11 @@ public class FlowEntry implements Comparable
     private int nwProto;
     private int dlType;
     //private int destPort;
+    //meta-data
     private long timestamp;
     private int scheduleTimeout;
+    private OFMatch match;
+    private long matchedByteCount;
     
     public String toString()
     {
@@ -31,6 +35,7 @@ public class FlowEntry implements Comparable
         ret += ", DL Type = " + Integer.toHexString(dlType);
         ret += ", NW Protocol = " + Integer.toHexString(nwProto);
         ret += ", Timestamp = " + timestamp;
+//        ret += ", [Match = " + match.toString() + "]";
         return ret;
     }
     
@@ -175,6 +180,23 @@ public class FlowEntry implements Comparable
     public void setScheduleTimeout(int timeout) {
         this.scheduleTimeout = timeout;
     }
+
+    public OFMatch getMatch() {
+        return match;
+    }
+
+    public void setMatch(OFMatch match) {
+        this.match = match;
+    }
+
+    public long getMatchedByteCount() {
+        return matchedByteCount;
+    }
+
+    public void setMatchedByteCount(long matchedByteCount) {
+        this.matchedByteCount = matchedByteCount;
+    }
+    
     
     @Override
     protected FlowEntry clone() {
@@ -182,6 +204,7 @@ public class FlowEntry implements Comparable
         FlowEntry ret = new FlowEntry(swId, inputPort, srcIp, destIp, nwProto, dlType);
         ret.setTimestamp(this.timestamp);
         ret.setScheduleTimeout(this.scheduleTimeout);
+        ret.setMatch(this.match.clone());
         return ret;
     }
 }
