@@ -24,6 +24,7 @@ public class FlowEntry implements Comparable
     private int scheduleTimeout;
     private OFMatch match;
     private long matchedByteCount;
+    private double duration;
     
     public String toString()
     {
@@ -196,6 +197,14 @@ public class FlowEntry implements Comparable
     public void setMatchedByteCount(long matchedByteCount) {
         this.matchedByteCount = matchedByteCount;
     }
+
+    public double getDuration() {
+        return duration;
+    }
+
+    public void setDuration(double duration) {
+        this.duration = duration;
+    }
     
     
     @Override
@@ -205,6 +214,8 @@ public class FlowEntry implements Comparable
         ret.setTimestamp(this.timestamp);
         ret.setScheduleTimeout(this.scheduleTimeout);
         ret.setMatch(this.match.clone());
+        ret.setMatchedByteCount(matchedByteCount);
+        ret.setDuration(duration);
         return ret;
     }
 }

@@ -82,10 +82,14 @@ public class NETMonitor implements IOFMessageListener, IFloodlightModule, INetMo
     public static int MIN_SCHEDULE_BYTE_THRESHOLD = 1024;
     public static int MAX_SCHEDULE_BYTE_THRESHOLD = 10240;
     
+    public static int SCHEDULE_TIMEOUT_DAMPING_FACTOR = 4;
+    public static int SCHEDULE_TIMEOUT_AMPLIFY_FACTOR = 2;
+    
     protected SortedSet<FlowEntry> activeFlowTable;
     protected SortedMap<Long, SwitchStatistics> switchStatTable;
     protected SchedulerTable schedule;
     protected int statMessageCounter = 0;
+    protected SortedMap <Long, Integer> overhead;
 
     /*
      * Worker class for polling switches for statistics
@@ -112,13 +116,17 @@ public class NETMonitor implements IOFMessageListener, IFloodlightModule, INetMo
 
         public void run() {
             ArrayList<FlowEntry> flows = schedule.getAllEntries(timeout);
+            if(flows == null || flows.isEmpty()) return;
             logger.debug("My Timeout = " + timeout + "ms");
             logger.debug("Need to Schedule " + flows.size() + " flows");
+            overhead.put(System.currentTimeMillis(), flows.size());
             for (int i = 0; i < flows.size(); i++) {
                 FlowEntry entry = flows.get(i);
                 logger.debug("Scheduling flow " + (i + 1) + " " + entry.toString());
                 OFMatch match = entry.getMatch().clone();
                 IOFSwitch sw = floodLightProvider.getSwitches().get(entry.getSwId());
+                if(sw == null)
+                    return;
                 Integer wildcard_hints = ((Integer) sw.getAttribute(IOFSwitch.PROP_FASTWILDCARDS)) //PROP_FASTWILDCARDS
                         .intValue()
                         & ~OFMatch.OFPFW_DL_DST
@@ -144,15 +152,16 @@ public class NETMonitor implements IOFMessageListener, IFloodlightModule, INetMo
                 statRequest.setStatistics(statList);
                 statRequest.setLengthU(statRequest.getLengthU() + fs.getLength());
 
-
                 try {
+                    logger.debug("Stat request sent to sw = " + sw.getId());
                     sw.sendStatsQuery(statRequest, ++statMessageCounter, (NETMonitor) container);
                     sw.flush();
                 } catch (Exception ex) {
                     logger.error(ex.getMessage());
                 }
             }
-            schedule.getAction(timeout).reschedule(timeout, TimeUnit.MILLISECONDS);
+            if(schedule.getAction(timeout) != null)
+                schedule.getAction(timeout).reschedule(timeout, TimeUnit.MILLISECONDS);
         }
     }
 
@@ -220,17 +229,28 @@ public class NETMonitor implements IOFMessageListener, IFloodlightModule, INetMo
 
             logger.debug("Found a Matching Flow: " + tmpMatchFlow.toString());
             matchedFlow = tmpMatchFlow;
-
+            
             switch (type) {
                 case FLOW_REMOVED:
                     OFFlowRemoved flRmMsg = (OFFlowRemoved) msg;
                     duration = flRmMsg.getDurationSeconds() + (flRmMsg.getDurationNanoseconds() / 1e9);
+                    
                     if (flRmMsg.getReason().equals(OFFlowRemoved.OFFlowRemovedReason.OFPRR_IDLE_TIMEOUT)) {
                         timeOffset = (long) flRmMsg.getIdleTimeout() * 1000;
                         duration -= flRmMsg.getIdleTimeout();
                     }
                     byteCount = flRmMsg.getByteCount();
                     matchedFlow = tmpMatchFlow.clone();
+                    if(ALGORITHM.equals("payless")) 
+                    {
+                        //duration = tmpMatchFlow.getScheduleTimeout() / 1000.0;
+                        duration = ((double)flRmMsg.getDurationSeconds() + (double)flRmMsg.getDurationNanoseconds() / 1e9)
+                                   - tmpMatchFlow.getDuration();
+                        
+                        byteCount = flRmMsg.getByteCount() - matchedFlow.getMatchedByteCount();
+                        logger.debug("Flow Removed, Matched flow bytes= " + matchedFlow.getMatchedByteCount());
+                        schedule.removeFlowEntry(tmpMatchFlow.getScheduleTimeout(), tmpMatchFlow);
+                    }
                     activeFlowTable.remove(tmpMatchFlow);
                     printActiveFlows();
                     break;
@@ -242,14 +262,18 @@ public class NETMonitor implements IOFMessageListener, IFloodlightModule, INetMo
                     if (statList != null && statList.size() > 0) {
                         OFFlowStatisticsReply fstatReply = (OFFlowStatisticsReply) statList.get(0);
                         //duration = fstatReply.getDurationSeconds() + (fstatReply.getDurationNanoseconds() / 1e9);
-                        duration = matchedFlow.getScheduleTimeout();
+                        //duration = matchedFlow.getScheduleTimeout() / 1000.0;
+                        duration = (double)fstatReply.getDurationSeconds() + (double)fstatReply.getDurationNanoseconds() / 1e9
+                                    - matchedFlow.getDuration();
+                        
                         byteCount = fstatReply.getByteCount() - matchedFlow.getMatchedByteCount();
                         logger.debug("Matched Flow Prev. Byte Count = " + matchedFlow.getMatchedByteCount());
                         logger.debug("Stat reply, Del-byte = " + byteCount);
                         if(byteCount < MIN_SCHEDULE_BYTE_THRESHOLD)
                         {
                             int oldTimeout = matchedFlow.getScheduleTimeout();
-                            int newTimeout = Math.min(matchedFlow.getScheduleTimeout() * 2, MAX_SCHEDULE_TIMEOUT);
+                            int newTimeout = Math.min(matchedFlow.getScheduleTimeout() * SCHEDULE_TIMEOUT_AMPLIFY_FACTOR, 
+                                                        MAX_SCHEDULE_TIMEOUT);
                             matchedFlow.setScheduleTimeout(newTimeout);
                             schedule.updateTimeout(oldTimeout, newTimeout, matchedFlow);
                             if(schedule.getAction(newTimeout) == null)
@@ -263,7 +287,8 @@ public class NETMonitor implements IOFMessageListener, IFloodlightModule, INetMo
                         else if(byteCount > MAX_SCHEDULE_BYTE_THRESHOLD)
                         {
                             int oldTimeout = matchedFlow.getScheduleTimeout();
-                            int newTimeout = Math.max(matchedFlow.getScheduleTimeout() / 2, MIN_SCHEDULE_TIMEOUT);
+                            int newTimeout = Math.max(matchedFlow.getScheduleTimeout() / SCHEDULE_TIMEOUT_DAMPING_FACTOR, 
+                                                        MIN_SCHEDULE_TIMEOUT);
                             matchedFlow.setScheduleTimeout(newTimeout);
                             schedule.updateTimeout(oldTimeout, newTimeout, matchedFlow);
                             if(schedule.getAction(newTimeout) == null)
@@ -275,6 +300,8 @@ public class NETMonitor implements IOFMessageListener, IFloodlightModule, INetMo
                             }
                         }
                         matchedFlow.setMatchedByteCount(fstatReply.getByteCount());
+                        matchedFlow.setDuration((double)fstatReply.getDurationSeconds() 
+                                                + (double) fstatReply.getDurationNanoseconds() / 1e9);
                     }
                     break;
             }
@@ -307,7 +334,7 @@ public class NETMonitor implements IOFMessageListener, IFloodlightModule, INetMo
                             for (Iterator<Long> it = timestampSet.iterator(); it.hasNext();) {
                                 Long ts = it.next();
                                 if (ts.longValue() > matchedFlow.getTimestamp()
-                                        && ts.longValue() < checkPointTimeStamp) {
+                                        && ts.longValue() <= checkPointTimeStamp) {
                                     //logger.debug("[" + matchedFlow.getTimestamp() + "," + ts.toString() + "," + checkPointTimeStamp + "]");
                                     ls.getStatData().put(ts, utilization + ls.getStatData().get(ts).doubleValue());
                                 }
@@ -317,6 +344,8 @@ public class NETMonitor implements IOFMessageListener, IFloodlightModule, INetMo
                     }
                 }
             }
+            if(type.equals(OFType.STATS_REPLY))
+                matchedFlow.setTimestamp(checkPointTimeStamp);
         }
     }
 
@@ -437,7 +466,7 @@ public class NETMonitor implements IOFMessageListener, IFloodlightModule, INetMo
                         SingletonTask action = new SingletonTask(ses, new PollSwitchWorker(MIN_SCHEDULE_TIMEOUT, this));
                         action.reschedule(MIN_SCHEDULE_TIMEOUT, TimeUnit.MILLISECONDS);
                         schedule.addAction(MIN_SCHEDULE_TIMEOUT, action);
-                    }
+                    }    
                 }
                 logger.debug("Adding flow " + entry.toString() + " to the Active Flow Table");
                 activeFlowTable.add(entry);
@@ -541,6 +570,8 @@ public class NETMonitor implements IOFMessageListener, IFloodlightModule, INetMo
         this.switchStatTable = Collections.synchronizedSortedMap(new TreeMap<Long, SwitchStatistics>());
         this.schedule = new SchedulerTable();
         Map<String, String> configOptions = context.getConfigParams(this);
+        this.overhead = Collections.synchronizedSortedMap(new TreeMap<Long, Integer>());
+        
         try {
             String algorithm = configOptions.get("algorithm");
             if (algorithm != null) {
@@ -553,6 +584,8 @@ public class NETMonitor implements IOFMessageListener, IFloodlightModule, INetMo
             MAX_SCHEDULE_TIMEOUT = Integer.parseInt(configOptions.get("max_schedule_timeout"));
             MIN_SCHEDULE_BYTE_THRESHOLD = Integer.parseInt(configOptions.get("min_schedule_byte_threshold"));
             MAX_SCHEDULE_BYTE_THRESHOLD = Integer.parseInt(configOptions.get("max_schedule_byte_threshold"));
+            SCHEDULE_TIMEOUT_DAMPING_FACTOR = Integer.parseInt(configOptions.get("schedule_timeout_damping_factor"));
+            SCHEDULE_TIMEOUT_AMPLIFY_FACTOR = Integer.parseInt(configOptions.get("schedule_timeout_amplify_factor"));
         } catch (Exception ex) {
             logger.warn(ex.getMessage());
         }
@@ -576,6 +609,16 @@ public class NETMonitor implements IOFMessageListener, IFloodlightModule, INetMo
             Set<Long> switchIds = switchStatTable.keySet();
             for (Long swId : switchIds) {
                 switchStatTable.get(swId).printSwitchStatistcs(logger);
+            }
+        }
+        
+        synchronized(overhead)
+        {
+            logger.info("****Overhead****");
+            Set <Long> timestamps = overhead.keySet();
+            for(Long ts: timestamps)
+            {
+                logger.info(ts.toString() + "\t" + overhead.get(ts).toString());
             }
         }
     }

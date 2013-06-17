@@ -33,6 +33,11 @@ public class SchedulerTable {
         scheduleTable.get(timeout).add(entry);
     }
     
+    public synchronized int getFlowEntryCount(Integer timeout)
+    {
+        return scheduleTable.get(timeout).size();
+    }
+    
     public synchronized void addAction(Integer timeout, SingletonTask action)
     {
         actionSet.put(timeout, action);
@@ -45,12 +50,19 @@ public class SchedulerTable {
     
     public synchronized void updateTimeout(Integer oldTimeout, Integer newTimeout, FlowEntry entry)
     {
-        scheduleTable.get(oldTimeout).remove(entry);
+        removeFlowEntry(oldTimeout, entry);
         this.addFlowEntry(newTimeout, entry);
     }
     
     public ArrayList <FlowEntry> getAllEntries(Integer timeout)
     {
         return scheduleTable.get(timeout);
+    }
+    
+    public synchronized void removeFlowEntry(Integer timeout, FlowEntry entry)
+    {
+        scheduleTable.get(timeout).remove(entry);
+        if(scheduleTable.get(timeout).isEmpty())
+            actionSet.remove(timeout);
     }
 }
