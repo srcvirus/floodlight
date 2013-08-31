@@ -29,8 +29,8 @@ public class LinkStatistics implements Comparable {
             double utilization = statData.get(t);
             utilization *= 8.0;
             String unit = "";
-            utilization /= 1e9;
-            /*if(utilization > 1000.0)
+            utilization /= 1e6;
+/*            if(utilization > 1000.0)
             {
                 utilization /= 1000.0;
                 unit = "Kbps";
@@ -45,7 +45,7 @@ public class LinkStatistics implements Comparable {
                 utilization /= 1000.0;
                 unit = "Gbps";
             }*/
-            //utilization = Double.valueOf(new DecimalFormat("#.####").format(utilization));
+//            utilization = Double.valueOf(new DecimalFormat("#.####").format(utilization));
             log.info("\t\tTimestamp = " + t + ", Utilization = " + utilization + unit);
         }
     }

@@ -28,6 +28,7 @@ import net.floodlightcontroller.core.module.FloodlightModuleException;
 import net.floodlightcontroller.core.module.IFloodlightModule;
 import net.floodlightcontroller.core.module.IFloodlightService;
 import net.floodlightcontroller.core.util.SingletonTask;
+import net.floodlightcontroller.packet.DHCP;
 import net.floodlightcontroller.packet.Ethernet;
 import net.floodlightcontroller.packet.IPv4;
 import net.floodlightcontroller.restserver.IRestApiService;
@@ -55,7 +56,8 @@ import org.slf4j.LoggerFactory;
  * @author Shihabur Rahman Chowdhury
  * 
  */
-public class NETMonitor implements IOFMessageListener, IFloodlightModule, INetMonitorService {
+public class NETMonitor implements IOFMessageListener, IFloodlightModule, INetMonitorService
+{
 
     /*
      * Required Floodlight service modules
@@ -78,55 +80,63 @@ public class NETMonitor implements IOFMessageListener, IFloodlightModule, INetMo
      */
     public static int MIN_SCHEDULE_TIMEOUT = 200;
     public static int MAX_SCHEDULE_TIMEOUT = 1000;
-    
     public static int MIN_SCHEDULE_BYTE_THRESHOLD = 1024;
     public static int MAX_SCHEDULE_BYTE_THRESHOLD = 10240;
-    
     public static int SCHEDULE_TIMEOUT_DAMPING_FACTOR = 4;
     public static int SCHEDULE_TIMEOUT_AMPLIFY_FACTOR = 2;
-    
     protected SortedSet<FlowEntry> activeFlowTable;
     protected SortedMap<Long, SwitchStatistics> switchStatTable;
     protected SchedulerTable schedule;
     protected int statMessageCounter = 0;
-    protected SortedMap <Long, Integer> overhead;
-
+    protected SortedMap<Long, Integer> overhead;
+    protected SortedMap <FlowEntry, SortedMap <Long, Double>> flowStatTable;
     /*
      * Worker class for polling switches for statistics
      */
-    protected class PollSwitchWorker implements Runnable {
+    protected class PollSwitchWorker implements Runnable
+    {
 
         Integer timeout;
         Object container;
 
-        public PollSwitchWorker(Object container) {
+        public PollSwitchWorker(Object container)
+        {
             timeout = new Integer(NETMonitor.MIN_SCHEDULE_TIMEOUT);
             this.container = container;
         }
 
-        public PollSwitchWorker(Integer timeout, Object container) {
+        public PollSwitchWorker(Integer timeout, Object container)
+        {
             this.timeout = timeout;
             this.container = container;
         }
 
-        public PollSwitchWorker(int timeout, Object container) {
+        public PollSwitchWorker(int timeout, Object container)
+        {
             this.timeout = new Integer(timeout);
             this.container = container;
         }
 
-        public void run() {
+        public void run()
+        {
             ArrayList<FlowEntry> flows = schedule.getAllEntries(timeout);
-            if(flows == null || flows.isEmpty()) return;
+            if (flows == null || flows.isEmpty())
+            {
+                return;
+            }
             logger.debug("My Timeout = " + timeout + "ms");
             logger.debug("Need to Schedule " + flows.size() + " flows");
             overhead.put(System.currentTimeMillis(), flows.size());
-            for (int i = 0; i < flows.size(); i++) {
+            for (int i = 0; i < flows.size(); i++)
+            {
                 FlowEntry entry = flows.get(i);
                 logger.debug("Scheduling flow " + (i + 1) + " " + entry.toString());
                 OFMatch match = entry.getMatch().clone();
                 IOFSwitch sw = floodLightProvider.getSwitches().get(entry.getSwId());
-                if(sw == null)
+                if (sw == null)
+                {
                     return;
+                }
                 Integer wildcard_hints = ((Integer) sw.getAttribute(IOFSwitch.PROP_FASTWILDCARDS)) //PROP_FASTWILDCARDS
                         .intValue()
                         & ~OFMatch.OFPFW_DL_DST
@@ -152,16 +162,21 @@ public class NETMonitor implements IOFMessageListener, IFloodlightModule, INetMo
                 statRequest.setStatistics(statList);
                 statRequest.setLengthU(statRequest.getLengthU() + fs.getLength());
 
-                try {
+                try
+                {
                     logger.debug("Stat request sent to sw = " + sw.getId());
                     sw.sendStatsQuery(statRequest, ++statMessageCounter, (NETMonitor) container);
                     sw.flush();
-                } catch (Exception ex) {
+                }
+                catch (Exception ex)
+                {
                     logger.error(ex.getMessage());
                 }
             }
-            if(schedule.getAction(timeout) != null)
+            if (schedule.getAction(timeout) != null)
+            {
                 schedule.getAction(timeout).reschedule(timeout, TimeUnit.MILLISECONDS);
+            }
         }
     }
 
@@ -203,17 +218,21 @@ public class NETMonitor implements IOFMessageListener, IFloodlightModule, INetMo
     }
     printActiveFlows();
     }*/
-    public void updateLinkUsage(IOFSwitch sw, FlowEntry removedEntry, OFMatch match, OFMessage msg, OFType type) {
+    public void updateLinkUsage(IOFSwitch sw, FlowEntry removedEntry, OFMatch match, OFMessage msg, OFType type)
+    {
         long checkPointTimeStamp = System.currentTimeMillis();
         long timeOffset = 0;
         double duration = 0.0;
         long byteCount = 0;
         FlowEntry matchedFlow = null, tmpMatchFlow = null;
 
-        synchronized (activeFlowTable) {
-            for (Iterator<FlowEntry> it = activeFlowTable.iterator(); it.hasNext();) {
+        synchronized (activeFlowTable)
+        {
+            for (Iterator<FlowEntry> it = activeFlowTable.iterator(); it.hasNext();)
+            {
                 FlowEntry flow = it.next();
-                if (flow.equals(removedEntry)) {
+                if (flow.equals(removedEntry))
+                {
                     tmpMatchFlow = flow;
                     break;
                 }
@@ -222,31 +241,36 @@ public class NETMonitor implements IOFMessageListener, IFloodlightModule, INetMo
 
 
         checkPointTimeStamp -= timeOffset;
-        if(type.equals(OFType.FLOW_REMOVED))
+        if (type.equals(OFType.FLOW_REMOVED))
+        {
             logger.debug("[FLOW_MOD] Checkpoint = " + checkPointTimeStamp);
+        }
 
-        if (tmpMatchFlow != null) {
+        if (tmpMatchFlow != null)
+        {
 
             logger.debug("Found a Matching Flow: " + tmpMatchFlow.toString());
             matchedFlow = tmpMatchFlow;
-            
-            switch (type) {
+
+            switch (type)
+            {
                 case FLOW_REMOVED:
                     OFFlowRemoved flRmMsg = (OFFlowRemoved) msg;
                     duration = flRmMsg.getDurationSeconds() + (flRmMsg.getDurationNanoseconds() / 1e9);
-                    
-                    if (flRmMsg.getReason().equals(OFFlowRemoved.OFFlowRemovedReason.OFPRR_IDLE_TIMEOUT)) {
+
+                    if (flRmMsg.getReason().equals(OFFlowRemoved.OFFlowRemovedReason.OFPRR_IDLE_TIMEOUT))
+                    {
                         timeOffset = (long) flRmMsg.getIdleTimeout() * 1000;
                         duration -= flRmMsg.getIdleTimeout();
                     }
                     byteCount = flRmMsg.getByteCount();
                     matchedFlow = tmpMatchFlow.clone();
-                    if(ALGORITHM.equals("payless")) 
+                    if (ALGORITHM.equals("payless"))
                     {
                         //duration = tmpMatchFlow.getScheduleTimeout() / 1000.0;
-                        duration = ((double)flRmMsg.getDurationSeconds() + (double)flRmMsg.getDurationNanoseconds() / 1e9)
-                                   - tmpMatchFlow.getDuration();
-                        
+                        duration = ((double) flRmMsg.getDurationSeconds() + (double) flRmMsg.getDurationNanoseconds() / 1e9)
+                                - tmpMatchFlow.getDuration();
+
                         byteCount = flRmMsg.getByteCount() - matchedFlow.getMatchedByteCount();
                         logger.debug("Flow Removed, Matched flow bytes= " + matchedFlow.getMatchedByteCount());
                         schedule.removeFlowEntry(tmpMatchFlow.getScheduleTimeout(), tmpMatchFlow);
@@ -259,24 +283,25 @@ public class NETMonitor implements IOFMessageListener, IFloodlightModule, INetMo
                     OFStatisticsReply statReply = (OFStatisticsReply) msg;
                     ArrayList<OFStatistics> statList = (ArrayList<OFStatistics>) statReply.getStatistics();
                     logger.debug("Received Stat Reply " + statList.size());
-                    if (statList != null && statList.size() > 0) {
+                    if (statList != null && statList.size() > 0)
+                    {
                         OFFlowStatisticsReply fstatReply = (OFFlowStatisticsReply) statList.get(0);
                         //duration = fstatReply.getDurationSeconds() + (fstatReply.getDurationNanoseconds() / 1e9);
                         //duration = matchedFlow.getScheduleTimeout() / 1000.0;
-                        duration = (double)fstatReply.getDurationSeconds() + (double)fstatReply.getDurationNanoseconds() / 1e9
-                                    - matchedFlow.getDuration();
-                        
+                        duration = (double) fstatReply.getDurationSeconds() + (double) fstatReply.getDurationNanoseconds() / 1e9
+                                - matchedFlow.getDuration();
+
                         byteCount = fstatReply.getByteCount() - matchedFlow.getMatchedByteCount();
                         logger.debug("Matched Flow Prev. Byte Count = " + matchedFlow.getMatchedByteCount());
                         logger.debug("Stat reply, Del-byte = " + byteCount);
-                        if(byteCount < MIN_SCHEDULE_BYTE_THRESHOLD)
+                        if (byteCount < MIN_SCHEDULE_BYTE_THRESHOLD)
                         {
                             int oldTimeout = matchedFlow.getScheduleTimeout();
-                            int newTimeout = Math.min(matchedFlow.getScheduleTimeout() * SCHEDULE_TIMEOUT_AMPLIFY_FACTOR, 
-                                                        MAX_SCHEDULE_TIMEOUT);
+                            int newTimeout = Math.min(matchedFlow.getScheduleTimeout() * SCHEDULE_TIMEOUT_AMPLIFY_FACTOR,
+                                                      MAX_SCHEDULE_TIMEOUT);
                             matchedFlow.setScheduleTimeout(newTimeout);
                             schedule.updateTimeout(oldTimeout, newTimeout, matchedFlow);
-                            if(schedule.getAction(newTimeout) == null)
+                            if (schedule.getAction(newTimeout) == null)
                             {
                                 ScheduledExecutorService ses = threadPool.getScheduledExecutor();
                                 SingletonTask action = new SingletonTask(ses, new PollSwitchWorker(newTimeout, this));
@@ -284,14 +309,14 @@ public class NETMonitor implements IOFMessageListener, IFloodlightModule, INetMo
                                 schedule.addAction(newTimeout, action);
                             }
                         }
-                        else if(byteCount > MAX_SCHEDULE_BYTE_THRESHOLD)
+                        else if (byteCount > MAX_SCHEDULE_BYTE_THRESHOLD)
                         {
                             int oldTimeout = matchedFlow.getScheduleTimeout();
-                            int newTimeout = Math.max(matchedFlow.getScheduleTimeout() / SCHEDULE_TIMEOUT_DAMPING_FACTOR, 
-                                                        MIN_SCHEDULE_TIMEOUT);
+                            int newTimeout = Math.max(matchedFlow.getScheduleTimeout() / SCHEDULE_TIMEOUT_DAMPING_FACTOR,
+                                                      MIN_SCHEDULE_TIMEOUT);
                             matchedFlow.setScheduleTimeout(newTimeout);
                             schedule.updateTimeout(oldTimeout, newTimeout, matchedFlow);
-                            if(schedule.getAction(newTimeout) == null)
+                            if (schedule.getAction(newTimeout) == null)
                             {
                                 ScheduledExecutorService ses = threadPool.getScheduledExecutor();
                                 SingletonTask action = new SingletonTask(ses, new PollSwitchWorker(newTimeout, this));
@@ -300,15 +325,23 @@ public class NETMonitor implements IOFMessageListener, IFloodlightModule, INetMo
                             }
                         }
                         matchedFlow.setMatchedByteCount(fstatReply.getByteCount());
-                        matchedFlow.setDuration((double)fstatReply.getDurationSeconds() 
-                                                + (double) fstatReply.getDurationNanoseconds() / 1e9);
+                        matchedFlow.setDuration((double) fstatReply.getDurationSeconds()
+                                + (double) fstatReply.getDurationNanoseconds() / 1e9);
                     }
                     break;
             }
-         
+
             double utilization = (double) byteCount / duration;
             logger.debug("Instant utilization = " + utilization);
-            if (switchStatTable.get(new Long(sw.getId())) == null) {
+            
+            if(flowStatTable.get(matchedFlow) == null)
+            {
+                flowStatTable.put(matchedFlow, Collections.synchronizedSortedMap(new TreeMap<Long, Double>()));
+            }
+            flowStatTable.get(matchedFlow).put(checkPointTimeStamp, utilization);
+            
+            if (switchStatTable.get(new Long(sw.getId())) == null)
+            {
                 logger.debug("Adding a switch entry for the first time, swId = " + sw.getId());
                 LinkStatistics linkStat = new LinkStatistics();
                 linkStat.setInputPort(matchedFlow.getInputPort());
@@ -318,23 +351,32 @@ public class NETMonitor implements IOFMessageListener, IFloodlightModule, INetMo
                 swStat.setSwId(sw.getId());
                 swStat.addLinkStat(linkStat);
                 switchStatTable.put(sw.getId(), swStat);
-            } else if (switchStatTable.get(new Long(sw.getId())).linkExists(match.getInputPort()) == false) {
+            }
+            else if (switchStatTable.get(new Long(sw.getId())).linkExists(match.getInputPort()) == false)
+            {
                 logger.debug("Adding entry for port = " + matchedFlow.getInputPort() + " on switch " + sw.getId());
                 LinkStatistics linkStat = new LinkStatistics();
                 linkStat.setInputPort(matchedFlow.getInputPort());
                 linkStat.addStatData(checkPointTimeStamp, utilization);
                 switchStatTable.get(new Long(sw.getId())).addLinkStat(linkStat);
-            } else {
+            }
+            else
+            {
                 SwitchStatistics swStat = switchStatTable.get(new Long(sw.getId()));
-                synchronized (swStat.getLinkStatTable()) {
-                    for (Iterator<LinkStatistics> lsIt = swStat.getLinkStatTable().iterator(); lsIt.hasNext();) {
+                synchronized (swStat.getLinkStatTable())
+                {
+                    for (Iterator<LinkStatistics> lsIt = swStat.getLinkStatTable().iterator(); lsIt.hasNext();)
+                    {
                         LinkStatistics ls = lsIt.next();
-                        if (ls.getInputPort() == match.getInputPort()) {
+                        if (ls.getInputPort() == match.getInputPort())
+                        {
                             Set<Long> timestampSet = ls.getStatData().keySet();
-                            for (Iterator<Long> it = timestampSet.iterator(); it.hasNext();) {
+                            for (Iterator<Long> it = timestampSet.iterator(); it.hasNext();)
+                            {
                                 Long ts = it.next();
                                 if (ts.longValue() > matchedFlow.getTimestamp()
-                                        && ts.longValue() <= checkPointTimeStamp) {
+                                        && ts.longValue() <= checkPointTimeStamp)
+                                {
                                     //logger.debug("[" + matchedFlow.getTimestamp() + "," + ts.toString() + "," + checkPointTimeStamp + "]");
                                     ls.getStatData().put(ts, utilization + ls.getStatData().get(ts).doubleValue());
                                 }
@@ -344,12 +386,15 @@ public class NETMonitor implements IOFMessageListener, IFloodlightModule, INetMo
                     }
                 }
             }
-            if(type.equals(OFType.STATS_REPLY))
+            if (type.equals(OFType.STATS_REPLY))
+            {
                 matchedFlow.setTimestamp(checkPointTimeStamp);
+            }
         }
     }
 
-    public void processFlowRemovedMessage(IOFSwitch sw, OFMessage msg, FloodlightContext cntx) {
+    public void processFlowRemovedMessage(IOFSwitch sw, OFMessage msg, FloodlightContext cntx)
+    {
         OFMatch match;
         OFFlowRemoved flRmMsg = (OFFlowRemoved) msg;
         match = flRmMsg.getMatch();
@@ -380,133 +425,150 @@ public class NETMonitor implements IOFMessageListener, IFloodlightModule, INetMo
         updateLinkUsage(sw, removedEntry, match, msg, OFType.FLOW_REMOVED);
         /*long checkPointTimeStamp = System.currentTimeMillis();
         if (rsn.equals(OFFlowRemoved.OFFlowRemovedReason.OFPRR_IDLE_TIMEOUT)) {
-            checkPointTimeStamp -= (long) (flRmMsg.getIdleTimeout() * 1000);
+        checkPointTimeStamp -= (long) (flRmMsg.getIdleTimeout() * 1000);
         }
         FlowEntry matchedFlow = null, tmpMatchFlow = null;
-
+        
         synchronized (activeFlowTable) {
-            for (Iterator<FlowEntry> it = activeFlowTable.iterator(); it.hasNext();) {
-                FlowEntry flow = it.next();
-                if (flow.equals(removedEntry)) {
-                    tmpMatchFlow = flow;
-                    break;
-                }
-            }
+        for (Iterator<FlowEntry> it = activeFlowTable.iterator(); it.hasNext();) {
+        FlowEntry flow = it.next();
+        if (flow.equals(removedEntry)) {
+        tmpMatchFlow = flow;
+        break;
         }
-
+        }
+        }
+        
         if (tmpMatchFlow != null) {
-            logger.debug("Found a Matching Flow: " + tmpMatchFlow.toString());
-            matchedFlow = tmpMatchFlow.clone();
-
-            activeFlowTable.remove(matchedFlow);
-            printActiveFlows();
-            double duration = flRmMsg.getDurationSeconds() + (flRmMsg.getDurationNanoseconds() / 1e9);
-            if (rsn.equals(OFFlowRemoved.OFFlowRemovedReason.OFPRR_IDLE_TIMEOUT)) {
-                duration -= (double) flRmMsg.getIdleTimeout();
-            }
-
-            double utilization = (double) flRmMsg.getByteCount() / duration;
-
-            if (switchStatTable.get(new Long(sw.getId())) == null) {
-                logger.debug("Adding a switch entry for the first time, swId = " + sw.getId());
-                LinkStatistics linkStat = new LinkStatistics();
-                linkStat.setInputPort(matchedFlow.getInputPort());
-                linkStat.addStatData(checkPointTimeStamp, utilization);
-
-                SwitchStatistics swStat = new SwitchStatistics();
-                swStat.setSwId(sw.getId());
-                swStat.addLinkStat(linkStat);
-                switchStatTable.put(sw.getId(), swStat);
-            } else if (switchStatTable.get(new Long(sw.getId())).linkExists(match.getInputPort()) == false) {
-                logger.debug("Adding entry for port = " + matchedFlow.getInputPort() + " on switch " + sw.getId());
-                LinkStatistics linkStat = new LinkStatistics();
-                linkStat.setInputPort(matchedFlow.getInputPort());
-                linkStat.addStatData(checkPointTimeStamp, utilization);
-                switchStatTable.get(new Long(sw.getId())).addLinkStat(linkStat);
-            } else {
-                SwitchStatistics swStat = switchStatTable.get(new Long(sw.getId()));
-                synchronized (swStat.getLinkStatTable()) {
-                    for (Iterator<LinkStatistics> lsIt = swStat.getLinkStatTable().iterator(); lsIt.hasNext();) {
-                        LinkStatistics ls = lsIt.next();
-                        if (ls.getInputPort() == match.getInputPort()) {
-                            Set<Long> timestampSet = ls.getStatData().keySet();
-                            for (Iterator<Long> it = timestampSet.iterator(); it.hasNext();) {
-                                Long ts = it.next();
-                                if (ts.longValue() > matchedFlow.getTimestamp()
-                                        && ts.longValue() < checkPointTimeStamp) {
-                                    logger.debug("[" + matchedFlow.getTimestamp() + "," + ts.toString() + "," + checkPointTimeStamp + "]");
-                                    ls.getStatData().put(ts, utilization + ls.getStatData().get(ts).doubleValue());
-                                }
-                            }
-                            ls.addStatData(checkPointTimeStamp, utilization);
-                        }
-                    }
-                }
-            }
+        logger.debug("Found a Matching Flow: " + tmpMatchFlow.toString());
+        matchedFlow = tmpMatchFlow.clone();
+        
+        activeFlowTable.remove(matchedFlow);
+        printActiveFlows();
+        double duration = flRmMsg.getDurationSeconds() + (flRmMsg.getDurationNanoseconds() / 1e9);
+        if (rsn.equals(OFFlowRemoved.OFFlowRemovedReason.OFPRR_IDLE_TIMEOUT)) {
+        duration -= (double) flRmMsg.getIdleTimeout();
+        }
+        
+        double utilization = (double) flRmMsg.getByteCount() / duration;
+        
+        if (switchStatTable.get(new Long(sw.getId())) == null) {
+        logger.debug("Adding a switch entry for the first time, swId = " + sw.getId());
+        LinkStatistics linkStat = new LinkStatistics();
+        linkStat.setInputPort(matchedFlow.getInputPort());
+        linkStat.addStatData(checkPointTimeStamp, utilization);
+        
+        SwitchStatistics swStat = new SwitchStatistics();
+        swStat.setSwId(sw.getId());
+        swStat.addLinkStat(linkStat);
+        switchStatTable.put(sw.getId(), swStat);
+        } else if (switchStatTable.get(new Long(sw.getId())).linkExists(match.getInputPort()) == false) {
+        logger.debug("Adding entry for port = " + matchedFlow.getInputPort() + " on switch " + sw.getId());
+        LinkStatistics linkStat = new LinkStatistics();
+        linkStat.setInputPort(matchedFlow.getInputPort());
+        linkStat.addStatData(checkPointTimeStamp, utilization);
+        switchStatTable.get(new Long(sw.getId())).addLinkStat(linkStat);
+        } else {
+        SwitchStatistics swStat = switchStatTable.get(new Long(sw.getId()));
+        synchronized (swStat.getLinkStatTable()) {
+        for (Iterator<LinkStatistics> lsIt = swStat.getLinkStatTable().iterator(); lsIt.hasNext();) {
+        LinkStatistics ls = lsIt.next();
+        if (ls.getInputPort() == match.getInputPort()) {
+        Set<Long> timestampSet = ls.getStatData().keySet();
+        for (Iterator<Long> it = timestampSet.iterator(); it.hasNext();) {
+        Long ts = it.next();
+        if (ts.longValue() > matchedFlow.getTimestamp()
+        && ts.longValue() < checkPointTimeStamp) {
+        logger.debug("[" + matchedFlow.getTimestamp() + "," + ts.toString() + "," + checkPointTimeStamp + "]");
+        ls.getStatData().put(ts, utilization + ls.getStatData().get(ts).doubleValue());
+        }
+        }
+        ls.addStatData(checkPointTimeStamp, utilization);
+        }
+        }
+        }
+        }
         }*/
     }
 
-    public void processFlowModMessage(IOFSwitch sw, OFMessage msg, FloodlightContext cntx) {
+    boolean isValidFlow(FlowEntry entry, OFMatch match)
+    {
+        return activeFlowTable.contains(entry) == false
+                && entry.getDlType() == Ethernet.TYPE_IPv4
+                && entry.getNwProto() == IPv4.PROTOCOL_UDP
+                && (match.getTransportDestination() != 67 && match.getTransportDestination() != 68);
+    }
+    
+    public void processFlowModMessage(IOFSwitch sw, OFMessage msg, FloodlightContext cntx)
+    {
         OFFlowMod flowModMsg = (OFFlowMod) msg;
         logger.debug("Intercepted FlowMod Message:\t" + flowModMsg.toString());
         OFMatch match = flowModMsg.getMatch();
         FlowEntry entry = new FlowEntry(sw.getId(), match.getInputPort(), match.getNetworkSource(),
-                match.getNetworkDestination(), match.getNetworkProtocol(), match.getDataLayerType());
+                                        match.getNetworkDestination(), match.getNetworkProtocol(), match.getDataLayerType());
         entry.setMatch(match);
-        synchronized (activeFlowTable) {
-            if (activeFlowTable.contains(entry) == false && entry.getDlType() == Ethernet.TYPE_IPv4
-                    && entry.getNwProto() != IPv4.PROTOCOL_UDP) {
+        synchronized (activeFlowTable)
+        {
+            if(isValidFlow(entry, match))
+/*            if (activeFlowTable.contains(entry) == false && entry.getDlType() == Ethernet.TYPE_IPv4
+                    && entry.getNwProto() != IPv4.PROTOCOL_UDP)
+*/
+            {
                 entry.setTimestamp(System.currentTimeMillis());
                 entry.setScheduleTimeout(MIN_SCHEDULE_TIMEOUT);
                 logger.debug(ALGORITHM);
-                if (ALGORITHM.equals("payless") == true) {
+                if (ALGORITHM.equals("payless") == true)
+                {
                     schedule.addFlowEntry(new Integer(MIN_SCHEDULE_TIMEOUT), entry);
-                    if (schedule.getAction(MIN_SCHEDULE_TIMEOUT) == null) {
+                    if (schedule.getAction(MIN_SCHEDULE_TIMEOUT) == null)
+                    {
                         ScheduledExecutorService ses = threadPool.getScheduledExecutor();
                         SingletonTask action = new SingletonTask(ses, new PollSwitchWorker(MIN_SCHEDULE_TIMEOUT, this));
                         action.reschedule(MIN_SCHEDULE_TIMEOUT, TimeUnit.MILLISECONDS);
                         schedule.addAction(MIN_SCHEDULE_TIMEOUT, action);
-                    }    
+                    }
                 }
                 logger.debug("Adding flow " + entry.toString() + " to the Active Flow Table");
                 activeFlowTable.add(entry);
+                printActiveFlows();
             }
         }
-        printActiveFlows();
+        
     }
 
-    public void processStatReplyMessage(IOFSwitch sw, OFMessage msg, FloodlightContext cntx) {
-        
-        
-        
+    public void processStatReplyMessage(IOFSwitch sw, OFMessage msg, FloodlightContext cntx)
+    {
         OFStatisticsReply statReply = (OFStatisticsReply) msg;
         ArrayList<OFStatistics> statList = (ArrayList<OFStatistics>) statReply.getStatistics();
         logger.debug("Received Stat Reply " + statList.size());
-        if(statList != null && statList.size() > 0)
-        {    
+        if (statList != null && statList.size() > 0)
+        {
             OFFlowStatisticsReply fsr = (OFFlowStatisticsReply) statList.get(0);
             logger.debug("Status reply received from Sw = " + sw.getId() + " " + fsr.toString());
-            FlowEntry entry = new FlowEntry(sw.getId(), 
-                                            fsr.getMatch().getInputPort(), 
-                                            fsr.getMatch().getNetworkSource(), 
-                                            fsr.getMatch().getNetworkDestination(), 
-                                            fsr.getMatch().getNetworkProtocol(), 
+            FlowEntry entry = new FlowEntry(sw.getId(),
+                                            fsr.getMatch().getInputPort(),
+                                            fsr.getMatch().getNetworkSource(),
+                                            fsr.getMatch().getNetworkDestination(),
+                                            fsr.getMatch().getNetworkProtocol(),
                                             fsr.getMatch().getDataLayerType());
-            
+
             updateLinkUsage(sw, entry, fsr.getMatch(), msg, OFType.STATS_REPLY);
             //printUtilization();
         }
     }
 
-    public Command receive(IOFSwitch sw, OFMessage msg, FloodlightContext cntx) {
-        switch (msg.getType()) {
+    public Command receive(IOFSwitch sw, OFMessage msg, FloodlightContext cntx)
+    {
+        switch (msg.getType())
+        {
             case PACKET_IN:
                 //processPacketInMessage(sw, msg, cntx);
                 break;
 
             case FLOW_REMOVED:
                 processFlowRemovedMessage(sw, msg, cntx);
-                printUtilization();
+                //printUtilization();
+                printFlowStats();
                 break;
 
             case FLOW_MOD:
@@ -521,31 +583,37 @@ public class NETMonitor implements IOFMessageListener, IFloodlightModule, INetMo
         return Command.CONTINUE;
     }
 
-    public String getName() {
+    public String getName()
+    {
         return NETMonitor.class.getSimpleName();
     }
 
-    public boolean isCallbackOrderingPrereq(OFType type, String name) {
+    public boolean isCallbackOrderingPrereq(OFType type, String name)
+    {
         return false;
     }
 
-    public boolean isCallbackOrderingPostreq(OFType type, String name) {
+    public boolean isCallbackOrderingPostreq(OFType type, String name)
+    {
         return false;
     }
 
-    public Collection<Class<? extends IFloodlightService>> getModuleServices() {
+    public Collection<Class<? extends IFloodlightService>> getModuleServices()
+    {
         Collection<Class<? extends IFloodlightService>> l = new ArrayList<Class<? extends IFloodlightService>>();
         l.add(INetMonitorService.class);
         return l;
     }
 
-    public Map<Class<? extends IFloodlightService>, IFloodlightService> getServiceImpls() {
+    public Map<Class<? extends IFloodlightService>, IFloodlightService> getServiceImpls()
+    {
         Map<Class<? extends IFloodlightService>, IFloodlightService> m = new HashMap<Class<? extends IFloodlightService>, IFloodlightService>();
         m.put(INetMonitorService.class, this);
         return m;
     }
 
-    public Collection<Class<? extends IFloodlightService>> getModuleDependencies() {
+    public Collection<Class<? extends IFloodlightService>> getModuleDependencies()
+    {
         Collection<Class<? extends IFloodlightService>> dependencyList = new ArrayList<Class<? extends IFloodlightService>>();
         dependencyList.add(IFloodlightProviderService.class);
         dependencyList.add(IRestApiService.class);
@@ -553,30 +621,37 @@ public class NETMonitor implements IOFMessageListener, IFloodlightModule, INetMo
         return dependencyList;
     }
 
-    public void init(FloodlightModuleContext context) throws FloodlightModuleException {
+    public void init(FloodlightModuleContext context) throws FloodlightModuleException
+    {
         initServices(context);
         initDSandVariables(context);
     }
 
-    public void initServices(FloodlightModuleContext context) {
+    public void initServices(FloodlightModuleContext context)
+    {
         this.floodLightProvider = context.getServiceImpl(IFloodlightProviderService.class);
         this.restApi = context.getServiceImpl(IRestApiService.class);
         this.logger = LoggerFactory.getLogger(NETMonitor.class);
         this.threadPool = context.getServiceImpl(IThreadPoolService.class);
     }
 
-    public void initDSandVariables(FloodlightModuleContext context) {
+    public void initDSandVariables(FloodlightModuleContext context)
+    {
         this.activeFlowTable = Collections.synchronizedSortedSet(new TreeSet<FlowEntry>());
         this.switchStatTable = Collections.synchronizedSortedMap(new TreeMap<Long, SwitchStatistics>());
         this.schedule = new SchedulerTable();
         Map<String, String> configOptions = context.getConfigParams(this);
         this.overhead = Collections.synchronizedSortedMap(new TreeMap<Long, Integer>());
-        
-        try {
+        this.flowStatTable = Collections.synchronizedSortedMap(new TreeMap <FlowEntry, SortedMap <Long, Double>>());
+        try
+        {
             String algorithm = configOptions.get("algorithm");
-            if (algorithm != null) {
+            if (algorithm != null)
+            {
                 ALGORITHM = algorithm;
-            } else {
+            }
+            else
+            {
                 throw new NullPointerException("no value for parameter algorithm");
             }
 
@@ -586,62 +661,119 @@ public class NETMonitor implements IOFMessageListener, IFloodlightModule, INetMo
             MAX_SCHEDULE_BYTE_THRESHOLD = Integer.parseInt(configOptions.get("max_schedule_byte_threshold"));
             SCHEDULE_TIMEOUT_DAMPING_FACTOR = Integer.parseInt(configOptions.get("schedule_timeout_damping_factor"));
             SCHEDULE_TIMEOUT_AMPLIFY_FACTOR = Integer.parseInt(configOptions.get("schedule_timeout_amplify_factor"));
-        } catch (Exception ex) {
+        }
+        catch (Exception ex)
+        {
             logger.warn(ex.getMessage());
         }
     }
 
-    public void startUp(FloodlightModuleContext context) throws FloodlightModuleException {
+    public void startUp(FloodlightModuleContext context) throws FloodlightModuleException
+    {
         addMessageListeners(context);
         restApi.addRestletRoutable(new NetMonitorWebRoutable());
     }
 
-    public void addMessageListeners(FloodlightModuleContext context) {
+    public void addMessageListeners(FloodlightModuleContext context)
+    {
         floodLightProvider.addOFMessageListener(OFType.PACKET_IN, this);
         floodLightProvider.addOFMessageListener(OFType.FLOW_REMOVED, this);
         floodLightProvider.addOFMessageListener(OFType.FLOW_MOD, this);
         floodLightProvider.addOFMessageListener(OFType.STATS_REPLY, this);
     }
 
-    public void printUtilization() {
-        synchronized (switchStatTable) {
+    public void printUtilization()
+    {
+        synchronized (switchStatTable)
+        {
             logger.info("nSwitches = " + switchStatTable.size());
             Set<Long> switchIds = switchStatTable.keySet();
-            for (Long swId : switchIds) {
+            for (Long swId : switchIds)
+            {
                 switchStatTable.get(swId).printSwitchStatistcs(logger);
             }
         }
-        
-        synchronized(overhead)
+
+        synchronized (overhead)
         {
             logger.info("****Overhead****");
-            Set <Long> timestamps = overhead.keySet();
-            for(Long ts: timestamps)
+            Set<Long> timestamps = overhead.keySet();
+            for (Long ts : timestamps)
             {
                 logger.info(ts.toString() + "\t" + overhead.get(ts).toString());
             }
         }
     }
 
-    public void printActiveFlows() {
+    public void printActiveFlows()
+    {
         String text = "Active Flow Set:";
         Object[] allEntries = null;
-        synchronized (activeFlowTable) {
+        synchronized (activeFlowTable)
+        {
             allEntries = activeFlowTable.toArray(new FlowEntry[0]);
         }
 
-        if (allEntries == null || allEntries.length <= 0) {
+        if (allEntries == null || allEntries.length <= 0)
+        {
             text += " [empty]";
-        } else {
-            for (int i = 0; i < allEntries.length; i++) {
+        }
+        else
+        {
+            for (int i = 0; i < allEntries.length; i++)
+            {
                 text += "\n\t" + allEntries[i].toString();
             }
         }
 
         logger.debug(text);
     }
+    
+    public String formatUnit(double x)
+    {
+        return Double.toString(x * 8.0 / 1e6);
+    }
+    
+    public void printFlowStats()
+    {
+        String text = "Flow Statistics\n";
+        Object[] allEntries = null;
+        synchronized(flowStatTable)
+        {
+            allEntries = flowStatTable.keySet().toArray(new FlowEntry[0]);
+        }
+        if(allEntries == null || allEntries.length <= 0)
+            text += "[empty]";
+        else
+        {
+            for(int i = 0; i < allEntries.length; i++)
+            {
+                //text += IPv4.fromIPv4Address( ((FlowEntry)allEntries[i]).getSrcIp() ) + ",";
+                //text += IPv4.fromIPv4Address( ((FlowEntry)allEntries[i]).getDestIp() );
+                text += ((FlowEntry)allEntries[i]).toString();
+                text += "\n";
+                
+                synchronized(flowStatTable)
+                {
+                    Object[] timestamps = flowStatTable.get((FlowEntry)allEntries[i]).keySet().toArray(new Long[0]);
+                    for(int j = 0; j < timestamps.length; j++)
+                    {
+                        text += "\t";
+                        text += ((Long)timestamps[j]).toString() + " ";
+                        text += formatUnit(flowStatTable.get((FlowEntry)allEntries[i]).get((Long)timestamps[j]).doubleValue());
+                        text += "\n";
+                    }
+                    //text += flowStatTable.get((FlowEntry)allEntries[i]).toString();
+                }
+                text += "\n";
+            }
+        }
+        
+        logger.info(text);
+    }
 
-    public SortedMap<Long, SwitchStatistics> getSwitchStatistics() {
+    public SortedMap<Long, SwitchStatistics> getSwitchStatistics()
+    {
         return switchStatTable;
     }
 }
