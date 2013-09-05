@@ -567,8 +567,8 @@ public class NETMonitor implements IOFMessageListener, IFloodlightModule, INetMo
 
             case FLOW_REMOVED:
                 processFlowRemovedMessage(sw, msg, cntx);
-                //printUtilization();
-                printFlowStats();
+                printUtilization();
+                //printFlowStats();
                 break;
 
             case FLOW_MOD:
